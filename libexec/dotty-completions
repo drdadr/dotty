@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Usage: dotty completions <command> [arg1 arg2...]
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+command="${1:-}"
+if [ -z "$command" ]; then
+  dotty-help --usage completions >&2
+  exit 1
+fi
+
+# Provide dotty completions
+if [ "$command" = "--complete" ]; then
+  exec dotty-commands
+fi
+
+command_path="$(command -v "dotty-$command")"
+
+# --help is provided automatically
+echo --help
+
+if grep -iE "^([#%]|--|//) provide dotty completions" "$command_path" >/dev/null; then
+  shift
+  exec "$command_path" --complete "$@"
+fi

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Summary: List all available dotty commands
+# Usage: dotty commands
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+# shellcheck disable=SC2206 # Purposely not quoted to allow PATH IFS splitting
+IFS=: paths=($PATH)
+
+shopt -s nullglob
+
+{ for path in "${paths[@]}"; do
+    for command in "${path}/dotty-"*; do
+      echo "${command##*dotty-}"
+    done
+  done
+} | sort | uniq

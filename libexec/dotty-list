@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# Summary: List links/modules/recipes
+#
+# Usage: dotty list links/modules/recipes
+#
+# List links created by dotty, modules or recipes found in DOTTY_SOURCE_DIR
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+# Provide dotty completions
+if [ "${1:-}" = "--complete" ]; then
+  echo "links"
+  echo "modules"
+  echo "recipes"
+  exit
+fi
+
+if [ -z "$DOTTY_TARGET_DIR" ] || [ -z "$DOTTY_SOURCE_DIR" ]; then
+  echo "Missing target and source dir variable, did you run this command from 'dotty'?" >&2
+  exit 1
+fi
+
+(( $# == 1 )) || abort "Invalid number of arguments specified"
+
+
+# Functions
+# ---------
+
+list_links() {
+  pushd "$DOTTY_TARGET_DIR" > /dev/null
+  if [[ -r ".dotty-links" ]]; then
+    cat .dotty-links
+  else
+    echo "No readable link file found"
+  fi
+  popd > /dev/null
+}
+
+list_modules() {
+  pushd "$DOTTY_SOURCE_DIR" > /dev/null
+  find . -maxdepth 1 -mindepth 1 -type d ! -name '.*' -exec basename {} \;
+  popd > /dev/null
+}
+
+list_recipes () {
+  declare -A "DOTTY_RECIPES=$(dotty-recipes)"
+  for recipe in "${!DOTTY_RECIPES[@]}"; do
+    echo "$recipe"
+  done
+}
+
+
+# Main
+# ----
+case "$1" in
+  links)
+    list_links
+    ;;
+  modules)
+    list_modules
+    ;;
+  recipes)
+    list_recipes
+    ;;
+  *)
+    abort "Unknown command $1"
+    ;;
+esac

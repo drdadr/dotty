@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+#
+# Summary: Run install scripts for given modules/recipes
+#
+# Usage: dotty install [--interactive/--continue/--fail] [FILE] [INSTALL_ARGS]
+#
+# Run install files located in MODULE/install directory. By default it takes the
+# current lock file of all linked modules and searches across the modules for
+# directoriies named 'dotty-install' and finds all non dot-files or files that
+# are not in dot-directories.
+#
+# If a specific install file fails, the user is asked whether to proceed, this
+# is also called '--interactive' behavior. This behavior can be made explicit by
+# the first argument. On '--fail' the whole install routine will stop and on
+# '--continue' it will continue with the next file.
+#
+# For each file it executes one of the following paths based on the file ending <EXT>
+# If a command exists dotty-install-EXT then execute this command with the file.
+# This allows users to write custom plugins to serve special installation routines.
+# If a system command with name EXT exists call this command with the file, e.g.
+# 'bash my_script.bash'
+# If neither of the commands exist or no file ending is present execute the file
+# directly and expect a valid shebang.
+#
+# If the second argument is a path to an existing file it will run only that file
+# as described above.
+#
+# More arguments can be specified but they will only be passed to dotty-install
+# plugins with a matching EXT name and otherwise ignored. Please note that all arguments
+# will be passed to all plugins.
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+# Provide dotty completions
+if [ "${1:-}" = "--complete" ]; then
+  echo "--interactive"
+  echo "--continue"
+  echo "--fail"
+  exit
+fi
+
+if [ -z "$DOTTY_TARGET_DIR" ] || [ -z "$DOTTY_SOURCE_DIR" ]; then
+  echo "Missing target and source dir variable, did you run this command from 'dotty'?" >&2
+  exit 1
+fi
+
+if [[ ${1:-} =~ ^--(interactive|continue|fail)$ ]]; then
+  handle_failures="$1"
+  shift
+else
+  handle_failures="--interactive"
+fi
+
+
+# Function definitions
+# --------------------
+
+ask_user_continue() {
+  local answer
+
+  echo "Install script: \'$file\' returned non zero exit code: $return_code"
+  read -rp "Continue?[Y]es/[N]o: " answer </dev/tty
+  case "${answer}" in
+      y|Y|yes|Yes|YES )
+        return 0
+      ;;
+      n|N|no|No|NO )
+        abort "Aborted due to install script failure"
+      ;;
+      * )
+        abort "Invalid selection"
+      ;;
+  esac
+}
+
+run_installer() {
+  # Usage: run_installer <install_file>
+  # local IFS=$'\n'
+  # # TODO: Make ignore files configurable
+  # for file in $(find ./install -type f); do
+  file="$(readlink -f "$1")"
+  filename=$(basename "$file")
+  file_root="${filename%.*}"
+  file_ext="${filename#"$file_root"}"
+  # file_ext is either empty or contains starting '.', e.g. '.txt'
+  file_ext="${file_ext:1}"
+
+  dotty_command="$(command -v "dotty-install-$file_ext" || true)"
+  sys_command="$(command -v "$file_ext" || true)"
+
+  set +e
+  if [[ -z $file_ext ]]; then
+    # For no file extensions simply execute, hoping for a shebang
+    "$file"
+  elif [[ -n $dotty_command ]]; then
+    # Execute matching dotty-install plugin
+    "$dotty_command" "$handle_failures" "$file" "${@:2}"
+  elif [[ -n "$sys_command" ]]; then
+    # Execute system command
+    "$sys_command" "$file"
+  else
+    # For a file extension with no matching command, still execute directly
+    "$file"
+  fi
+  return_code=$?
+  set -e
+
+  if [[ $return_code != 0 ]]; then
+    case "$handle_failures" in
+      --interactive )
+        ask_user_continue "$file" "$return_code"
+      ;;
+      --fail )
+        abort "Install script: \'$file\' returned non zero exit code: $return_code"
+      ;;
+      --continue )
+        echo "Install script: \'$file\' returned non zero exit code: $return_code, continueing"
+      ;;
+      * )
+        abort "Invalid failure mode"
+    esac
+  fi
+
+}
+
+install_module() {
+  # Summary: Runs the installer on each modules 'dotty-install' directory
+  # Usage: install_module <module directory>
+  local file install_dir
+  install_dir="$(readlink -f "$1")/dotty-install"
+  if [[ ! -d $install_dir ]] || [[ ! -e $install_dir ]]; then
+    return
+  fi
+
+  # Read find results, separated by zero byte (-print0)
+  while IFS= read -r -d '' file; do
+    run_installer "$file" "$@"
+  done < <(find "$install_dir" \( -type d -name '\.*' -o -type f -name '\.*' \) -prune -o -type f -print0)
+}
+
+
+read_lock_file () {
+  declare -a locked_targets=()
+  mapfile -t locked_targets < "$DOTTY_TARGET_DIR/.dotty-lock"
+  declare -ga "modules=$(dotty-targets "${locked_targets[@]}")"
+}
+
+
+# Main
+# ----
+
+# Check if running against a single file argument
+if [[ -r ${1:-} && -f ${1:-} ]]; then
+   run_installer "$@"
+else
+  [[ -r "$DOTTY_TARGET_DIR/.dotty-lock" ]] || abort "Can't read lock file, run dotty-link first"
+  declare -ga modules=()
+  read_lock_file
+
+  pushd "$DOTTY_SOURCE_DIR" > /dev/null
+
+  for module in "${modules[@]}"; do
+    install_module "$module" "$@"
+  done
+
+  popd > /dev/null
+fi

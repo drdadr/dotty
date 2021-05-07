@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+
+# Export debug setting
+command="${1:-}"
+if [[ $command == "--debug" ]]; then
+  export DOTTY_DEBUG=true
+  shift
+fi
+
+# Set helpful PS4 for debugging: script_file:line_number
+if [[ ${DOTTY_DEBUG:-false} == true ]]; then
+  export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
+  set -x
+fi
+
+# Helper function to abort execution in case of errors
+abort() {
+  { if [ "$#" -eq 0 ]; then cat -
+    else echo "dotty: $*"
+    fi
+  } >&2
+  exit 1
+}
+export -f abort
+
+# Determine source folder for dotfiles, defaults to $HOME/dotfiles
+if [ -z "${DOTTY_SOURCE_DIR:-}" ]; then
+  DOTTY_SOURCE_DIR="${HOME}/dotfiles"
+else
+  DOTTY_SOURCE_DIR="${DOTTY_SOURCE_DIR%/}"
+fi
+DOTTY_SOURCE_DIR="$(readlink -f "$DOTTY_SOURCE_DIR")"
+
+if [ ! -d "$DOTTY_SOURCE_DIR" ] || [ ! -e "$DOTTY_SOURCE_DIR" ]; then
+  abort "DOTTY_SOURCE_DIR:\'$DOTTY_SOURCE_DIR\' does not seem to a valid directory"
+fi
+export DOTTY_SOURCE_DIR
+
+
+# Determine target folder for dotfiles, defaults to $HOME
+if [ -z "${DOTTY_TARGET_DIR:-}" ]; then
+  DOTTY_TARGET_DIR="${HOME}"
+else
+  DOTTY_TARGET_DIR="${DOTTY_TARGET_DIR%/}"
+fi
+DOTTY_TARGET_DIR=$(readlink -f "$DOTTY_TARGET_DIR")
+
+if [ ! -d "$DOTTY_TARGET_DIR" ] || [ ! -e "$DOTTY_TARGET_DIR" ]; then
+  abort "DOTTY_TARGET_DIR:\'$DOTTY_TARGET_DIR\' does not seem to a valid directory"
+fi
+export DOTTY_TARGET_DIR
+
+
+shopt -s nullglob
+
+libexec_dir="$(dirname "$(readlink -f "$0")")"
+# Determine root folder of dotty installation
+if [ -z "${DOTTY_ROOT:-}" ]; then
+  DOTTY_ROOT="$(readlink -f "${libexec_dir}"/../)"
+else
+  DOTTY_ROOT="${DOTTY_ROOT%/}"
+fi
+export DOTTY_ROOT
+
+# Add plugin bin files to path
+for plugin_bin in "${DOTTY_ROOT}/plugins/"*/bin; do
+  PATH="${plugin_bin}:${PATH}"
+done
+# Add main dotty libexec folder to path
+export PATH="${libexec_dir}:${PATH}"
+
+shopt -u nullglob
+
+# Call dotty commands from libexec
+command="${1:-}"
+case "$command" in
+"" )
+  { dotty---version
+    dotty-help
+  } | abort
+  ;;
+-v | --version )
+  exec dotty---version
+  ;;
+-h | --help )
+  exec dotty-help
+  ;;
+* )
+  command_path="$(command -v "dotty-$command" || true)"
+  [ -z "$command_path" ] && abort "no such command \`$command'"
+
+  shift 1
+  if [ "$1" = --help ]; then
+    exec dotty-help "$command"
+  else
+    exec "$command_path" "$@"
+  fi
+  ;;
+esac

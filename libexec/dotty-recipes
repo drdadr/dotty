@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+#
+# Summary: Parse dotty recipe file
+#
+# Usage: dotty recipe [RECIPE_FILE]
+#
+# Parse a dotty recipe file and returns a string that can be used to re-initiate
+# the array:
+# declare -A DOTTY_RECIPES="$(dotty recipes [RECIPE_FILE])"
+#
+# The recipe file is written in the following simple standard:
+#
+# # This is a comment
+# recipe_1=dir1 # Right side comment
+# # Surrounding whitespace is trimmed
+# recipe_2 = dir2         # Assignment with spaces
+#
+# # You can use blank lines
+# # Separate multiple targets by space
+# recipe_3 = dir1 dir2
+# # If your target contains space, enclose it with quotes
+# recipe_4 = dir1 "dir with space"
+#
+# # If you want recipe names with spaces no need to quote:
+# recipe 5 = dir1
+
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+
+if [ -z "$DOTTY_TARGET_DIR" ] || [ -z "$DOTTY_SOURCE_DIR" ]; then
+  echo "Missing target and source dir variable, did you run this command from 'dotty'?" >&2
+  exit 1
+fi
+
+(( $# > 1 )) && abort "Invalid number of arguments"
+
+if (( $# == 0 )); then
+  recipe_file="$DOTTY_SOURCE_DIR/Dottyfile"
+else
+  recipe_file=$1
+fi
+
+# Function defintions
+# -------------------
+
+print_dict() {
+  # Prints a string that can be used to recreate the dictionary
+  # Usage: print_dict <DICT_REF>
+  local -n dict=$1
+
+  printf '('
+  for key in  "${!dict[@]}" ; do
+    printf "["
+    printf %q "$key"
+    printf "]=\""
+    printf %s "${dict[$key]}"
+    printf "\" "
+    # printf "[$key]=\"${dict[$key]}\" "
+  done
+  printf ')'
+}
+
+print_array() {
+  # Prints a string that can be used to recreate an array
+  # Usage: print_array <ARRAY_REF>
+  local -n array=$1
+  printf '('
+  for value in "${array[@]}" ; do
+      printf %q "$value"
+      printf " "
+  done
+  printf ')'
+}
+
+strip() {
+  # Strip leading and trailing whitespace
+  # Usage: strip <STRING>
+  local string=$1
+  string="${string#"${string%%[![:space:]]*}"}"  # Del leading whitespace characters
+  string="${string%"${string##*[![:space:]]}"}"  # Del trailing whitespace characters
+  printf %s "$string"
+}
+
+parse_recipe_file() {
+  # Read and parse recipe file
+  # Each entry becomes a key, the value is a string to create an array of the targets
+  # Usage: parse_recipe_file <FILE> <DICT_REF>
+  local file=$1
+  local -n recipes=$2
+
+  if [[ -r $file ]]; then
+    shopt -s extglob
+    while IFS='=' read -r lhs rhs
+    do
+      lhs="$(strip "${lhs}")"
+      if [[ ! $lhs =~ ^\ *# && -n $lhs ]]; then
+          rhs="${rhs%%\#*}"                     # Del inline right comments
+          rhs="$(strip "${rhs}")"
+          # Turn string into array (trying to be somewhat safe)
+          # https://superuser.com/questions/1066455/how-to-split-a-string-with-quotes-like-command-arguments-in-bash
+          declare -a "targets=($( echo "$rhs" | sed 's/[][`~!@#$%^&*():;<>.,?/\|{}=+-]/\\&/g' ))"
+          # shellcheck disable=SC2034 # Variable is used by reference
+          recipes[$lhs]=$(print_array targets)
+      fi
+    done < "$file"
+  fi
+}
+
+# Main
+# ----
+
+# shellcheck disable=SC2034 # Variable is used by reference
+declare -A all_recipes
+parse_recipe_file "$recipe_file" all_recipes
+print_dict all_recipes

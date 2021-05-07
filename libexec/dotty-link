@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# Summary: Link dotfiles content to target directory
+#
+# Usage: dotty link [--overwrite] RECIPE/MODULE
+#
+# Creates symlinks in the target directory for files in the specified RECIPE or MODULE
+#
+# Files starting with 'dot-X' or 'dot_X' are linked as '.X', making easy readable dotfiles directories possible.
+# Only files are linked, no directories, missing directory trees are constructed. By default existing files will
+# cause the linking to abort. If you specify the 'overwrite'option, existing files will be backed up and
+# replaced by their dotfiles counterpart.
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+# Provide dotty completions
+if [ "${1:-}" = "--complete" ]; then
+  echo --overwrite
+  dotty-list modules
+  dotty-list recipes
+  exit
+fi
+
+if [ -z "$DOTTY_TARGET_DIR" ] || [ -z "$DOTTY_SOURCE_DIR" ]; then
+  echo "Missing target and source dir variable, did you run this command from 'dotty'?" >&2
+  exit 1
+fi
+
+if [ "${1:-}" == "--overwrite" ]; then
+  overwrite=1
+  timestamp="$(date +'%Y-%m-%dT%H:%m:%S')"
+  shift
+else
+  overwrite=''
+fi
+
+declare -A "DOTTY_RECIPES=$(dotty-recipes)"
+
+
+# Function definitions
+# --------------------
+
+link_files() {
+  # TODO: Make ignore files configurable
+  local file link_dir rel_path
+  # Read find results, separated by zero byte (-print0)
+  while IFS= read -r -d '' file; do
+    # Replace file/folders starting with '/dot_' or '/dot-' with '/.'
+    local link_name=${file//\/dot[-_]/\/.}
+    # 'find' always returns paths with a starting './'
+    link_name="$DOTTY_TARGET_DIR${link_name#.}"
+
+    if [ -e "$link_name" ]; then
+      if [[ -n $overwrite ]]; then
+        mv "$link_name" "$link_name.$timestamp"
+      else
+        abort "'$link_name' is already existing, specify '--overwrite' or remove file"
+      fi
+    fi
+
+    # Create directory tree and link file
+    link_dir=$(dirname "$link_name")
+    mkdir -p "$link_dir"
+    rel_path=$(realpath --relative-to="$link_dir" "$(pwd)")
+    ln -s "$rel_path${file#.}" "$link_name"
+    echo "$link_name" >> "$DOTTY_TARGET_DIR/.dotty-links"
+
+  done < <(find . \( -type d -name 'dotty-install' -o -type d -name '.git' \) -prune -o -type f -print0)
+}
+
+read_lock_file () {
+  declare -a locked_targets=()
+  mapfile -t locked_targets < "$DOTTY_TARGET_DIR/.dotty-lock"
+  declare -ga "modules=$(dotty-targets "${locked_targets[@]}")"
+}
+
+write_lock_file () {
+  # Empty file
+  truncate -s 0 "$DOTTY_TARGET_DIR/.dotty-lock"
+  for arg in "$@"; do
+    echo "$arg" >> "$DOTTY_TARGET_DIR/.dotty-lock"
+  done
+}
+
+
+# Main
+# ----
+declare -ga modules
+pushd "$DOTTY_SOURCE_DIR" > /dev/null
+
+if (( $# == 0)); then
+  if [[ -r "$DOTTY_TARGET_DIR/.dotty-lock" ]]; then
+    read_lock_file
+  else
+    abort "No targets given, no lock file present"
+  fi
+else
+  declare -a "modules=$(dotty-targets "$@")"
+fi
+
+if [[ -r "$DOTTY_TARGET_DIR/.dotty-links" ]]; then
+  echo "Found existing links, unlinking first"
+  dotty-unlink
+fi
+
+for module in "${modules[@]}"; do
+  pushd "$module" > /dev/null
+  link_files
+  popd > /dev/null
+done
+
+write_lock_file "$@"
+
+popd > /dev/null

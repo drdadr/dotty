@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# Summary: Unlink dotfiles linked by dotty
+#
+# Usage: dotty unlink [--prune/--no-prune]
+#
+# Removes symlinks created by dotty
+#
+# Specify 'no-prune' to keep empty directories after links have been removed
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+# Provide dotty completions
+if [ "${1:-}" = "--complete" ]; then
+  echo --prune
+  echo --no-prune
+  exit
+fi
+
+if [ -z "$DOTTY_TARGET_DIR" ] || [ -z "$DOTTY_SOURCE_DIR" ]; then
+  abort "Missing target and source dir, did you run this command from 'dotty'?"
+fi
+
+(( $# < 2 )) || abort "Invalid number of arguments specified"
+
+case "${1:-}" in
+  ""|--prune)
+    prune=true
+    ;;
+  --no-prune)
+    prune=false
+    ;;
+  *)
+    abort "Unknown command $1"
+    ;;
+esac
+
+
+pushd "$DOTTY_TARGET_DIR" > /dev/null
+
+[[ -r ".dotty-links" ]] || abort "Could not read dotty links file in $DOTTY_TARGET_DIR"
+
+mapfile -t links < ".dotty-links"
+
+for link in "${links[@]}"; do
+  if [[ -e $link ]]; then
+    unlink "$link"
+  else
+    echo "Could not find $link, skipping"
+    continue
+  fi
+
+  if [[ "$prune" == true ]]; then
+    link_dir=$(dirname "$link")
+    link_dir=${link_dir#$DOTTY_TARGET_DIR\/}
+    rmdir --ignore-fail-on-non-empty --parents "$link_dir"
+  fi
+done
+
+rm -f ".dotty-links"
+popd > /dev/null

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# Summary: Parses a list of targets into a list of directory
+#
+# Usage: dotty targets RECIPE/MODULE
+#
+# Converts a list of possible targets (a mix of recipes and modules) into a list
+# of modules/directories without duplicates.
+#
+
+# Fail on -e: command non-zero exit, -u: unset variable, -o pipefail: fail if command in pipe fails
+set -euo pipefail
+[ -n "${DOTTY_DEBUG:-}" ] && set -x
+
+
+if [ -z "$DOTTY_TARGET_DIR" ] || [ -z "$DOTTY_SOURCE_DIR" ]; then
+  echo "Missing target and source dir variable, did you run this command from 'dotty'?" >&2
+  exit 1
+fi
+
+# Variables
+# ---------
+declare -A "DOTTY_RECIPES=$(dotty-recipes)"
+declare -A modules=()
+declare -A parsed_recipes=()
+
+
+# Functions
+# ---------
+
+parse_targets() {
+  local arg
+  for arg in "$@"; do
+    [[ "$arg" == "*\/*" ]] && abort "Slashes are not allowed in recipes/module names: $arg"
+    # Check if <arg> is a recipe or module
+    if [[ -v DOTTY_RECIPES["$arg"] ]]; then
+      # This avoids infinite circular recipe dependencies
+      if [[ ! -v parsed_recipes["$arg"] ]]; then
+        # Save that we parsed this recipe name
+        # shellcheck disable=SC2034 # Variable is used as a check
+        parsed_recipes["$arg"]=1
+
+        declare -a "recipe_targets=${DOTTY_RECIPES["$arg"]}"
+        # shellcheck disable=SC2154 # Variable is defined in the line above
+        parse_targets "${recipe_targets[@]}"
+      fi
+    elif [[ -d $arg ]]; then
+      modules["$arg"]=1 # The '1' is simply a placeholder value, we only care about keys
+    else
+      abort "'$arg' is neither a known recipe or source directory"
+    fi
+  done
+}
+
+
+# Main
+# ----
+
+pushd "$DOTTY_SOURCE_DIR" > /dev/null
+parse_targets "$@"
+popd > /dev/null
+
+# Sort modules alphabetically (using 0 delimited strings)
+readarray -t sorted_keys < <(printf '%s\0' "${!modules[@]}" | sort -z | xargs -0n1)
+
+# Print modules separated by space
+first=true
+printf "("
+for module in "${sorted_keys[@]}"; do
+  if [[ $first == "true" ]]; then
+    first=false
+  else
+    printf " "
+  fi
+  printf %q "$module"
+done
+printf ")"
