@@ -52,10 +52,12 @@ for link in "${links[@]}"; do
     continue
   fi
 
-  if [[ "$prune" == true ]]; then
+  if [[ $prune == true ]]; then
     link_dir=$(dirname "$link")
-    link_dir=${link_dir#$DOTTY_TARGET_DIR\/}
-    rmdir --ignore-fail-on-non-empty --parents "$link_dir"
+    if [[ $link_dir != $DOTTY_TARGET_DIR ]]; then
+      link_dir=${link_dir#$DOTTY_TARGET_DIR\/}
+      rmdir --ignore-fail-on-non-empty --parents "$link_dir"
+    fi
   fi
 done
 
