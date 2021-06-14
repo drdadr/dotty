@@ -93,7 +93,7 @@ case "$command" in
   [ -z "$command_path" ] && abort "no such command \`$command'"
 
   shift 1
-  if [ "$1" = --help ]; then
+  if [ "${1:-}" = --help ]; then
     exec dotty-help "$command"
   else
     exec "$command_path" "$@"
