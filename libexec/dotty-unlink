@@ -45,7 +45,7 @@ pushd "$DOTTY_TARGET_DIR" > /dev/null
 mapfile -t links < ".dotty-links"
 
 for link in "${links[@]}"; do
-  if [[ -e $link ]]; then
+  if [[ -h $link ]]; then
     unlink "$link"
   else
     echo "Could not find $link, skipping"
@@ -54,9 +54,9 @@ for link in "${links[@]}"; do
 
   if [[ $prune == true ]]; then
     link_dir=$(dirname "$link")
-    if [[ $link_dir != $DOTTY_TARGET_DIR ]]; then
-      link_dir=${link_dir#$DOTTY_TARGET_DIR\/}
-      rmdir --ignore-fail-on-non-empty --parents "$link_dir"
+    if [[ $link_dir != "$DOTTY_TARGET_DIR" ]]; then
+      link_dir="${link_dir#"$DOTTY_TARGET_DIR"\/}"
+      rmdir --ignore-fail-on-non-empty --parents "$link_dir" > /dev/null 2>&1 || echo "Failed to remove $link_dir"
     fi
   fi
 done
