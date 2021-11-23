@@ -52,9 +52,14 @@ link_files() {
     # 'find' always returns paths with a starting './'
     link_name="$DOTTY_TARGET_DIR${link_name#.}"
 
-    if [ -e "$link_name" ]; then
+    # Check for both existing and link in case the parent folder is symlinked
+    if [[ -e "$link_name" || -L "$link_name" ]]; then
       if [[ -n $overwrite ]]; then
-        mv "$link_name" "$link_name.$timestamp"
+        if [[ -L "$link_name" ]]; then
+          unlink "$link_name"
+        else
+          mv "$link_name" "$link_name.$timestamp"
+        fi
       else
         abort "'$link_name' is already existing, specify '--overwrite' or remove file"
       fi
@@ -62,6 +67,7 @@ link_files() {
 
     # Create directory tree and link file
     link_dir=$(dirname "$link_name")
+    [[ -L "$link_dir" ]] && unlink "$link_dir"
     mkdir -p "$link_dir"
     rel_path=$(realpath --relative-to="$link_dir" "$(pwd)")
     ln -s "$rel_path${file#.}" "$link_name"

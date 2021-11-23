@@ -45,7 +45,7 @@ pushd "$DOTTY_TARGET_DIR" > /dev/null
 mapfile -t links < ".dotty-links"
 
 for link in "${links[@]}"; do
-  if [[ -h $link ]]; then
+  if [[ -L $link ]]; then
     unlink "$link"
   else
     echo "Could not find $link, skipping"
