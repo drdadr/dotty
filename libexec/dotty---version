@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#
 # Summary: Display the version of dotty
 #
 # Displays the version number of this dotty release, including the
