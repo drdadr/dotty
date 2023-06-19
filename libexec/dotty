@@ -12,7 +12,8 @@ fi
 
 # Set helpful PS4 for debugging: script_file:line_number
 if [[ ${DOTTY_DEBUG:-false} == true ]]; then
-  export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
+  # https://wiki-dev.bash-hackers.org/scripting/debuggingtips#making_xtrace_more_useful
+  export PS4='+(${BASH_SOURCE}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
   set -x
 fi
 
@@ -35,7 +36,7 @@ fi
 DOTTY_SOURCE_DIR="$(readlink -f "$DOTTY_SOURCE_DIR")"
 
 if [ ! -d "$DOTTY_SOURCE_DIR" ] || [ ! -e "$DOTTY_SOURCE_DIR" ]; then
-  abort "DOTTY_SOURCE_DIR:\'$DOTTY_SOURCE_DIR\' does not seem to a valid directory"
+  abort "DOTTY_SOURCE_DIR:\'$DOTTY_SOURCE_DIR\' does not seem to be a valid directory"
 fi
 export DOTTY_SOURCE_DIR
 
@@ -49,7 +50,7 @@ fi
 DOTTY_TARGET_DIR=$(readlink -f "$DOTTY_TARGET_DIR")
 
 if [ ! -d "$DOTTY_TARGET_DIR" ] || [ ! -e "$DOTTY_TARGET_DIR" ]; then
-  abort "DOTTY_TARGET_DIR:\'$DOTTY_TARGET_DIR\' does not seem to a valid directory"
+  abort "DOTTY_TARGET_DIR:\'$DOTTY_TARGET_DIR\' does not seem to be a valid directory"
 fi
 export DOTTY_TARGET_DIR
 
